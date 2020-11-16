@@ -10,5 +10,5 @@ edition = "2018"
 nix = "*"
 log = "*"
 simplelog = "*"
-nom = "*"
+nom = { version = "*", features = ["alloc"] }
 lazy_static = "*"

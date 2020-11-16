@@ -64,7 +64,7 @@ int sock_init() {
 //
 // Example:
 // stdin: sendmsg alex "hi, alex!";
-// result (server-acceptable string): SENDMSG|TO:alex|MSG:hi, alex
+// result (server-acceptable string): SENDMSG|TO=alex|MSG=hi, alex
 //
 // Handlers may only send data
 // because you'll receive answers from server with select()

@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::OpenOptions;
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::thread;
 
 mod utils;
@@ -64,7 +64,7 @@ fn main() {
         match stream {
             Ok(stream) => {
                 info!("New connection: {}", stream.peer_addr().unwrap());
-                thread::spawn(move || Client::new(stream).handle());
+                thread::spawn(move || Client::handle(stream));
             }
             Err(e) => {
                 error!("Error: {}", e);

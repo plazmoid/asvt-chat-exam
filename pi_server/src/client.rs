@@ -24,10 +24,10 @@ impl Client {
             name: None,
             conn: stream,
         };
-        instance
+        instance._handle_req()
     }
 
-    pub fn _handle_req(&mut self) {
+    fn _handle_req(mut self) {
         let mut drop_trigger = false;
         let mut data = [0u8; CMD_BUF_SIZE];
         self.conn
@@ -59,10 +59,15 @@ impl Client {
                     let cmd = String::from_utf8_lossy(&data).into_owned().to_string();
                     let cmd = cmd.trim_matches(char::from(0)).trim().to_string();
                     info!("Cmd from {}: {}", self.conn.peer_addr().unwrap(), &cmd);
-                    let response = parse_request(&cmd)
-                        .map(|(_, c)| process_command(c, &self.conn))
-                        .unwrap_or_else(|e| Ok(format!("Error while handling '{}': {}", cmd, e)));
-                    self.send_response(response.unwrap());
+                    let response = parse_request(&cmd).map(|(_, c)| process_command(c, &self.conn));
+                    let response = match response {
+                        Ok(resp) => match resp {
+                            Ok(resp) => resp,
+                            Err(e) => format!("Error: {}", e),
+                        },
+                        Err(e) => format!("Error: Syntax error in '{}': {}", cmd, e.to_string()),
+                    };
+                    self.send_response(response);
                 }
                 Err(e) => {
                     error!(
@@ -76,7 +81,7 @@ impl Client {
         }
     }
 
-    pub fn send_response(&self, data: String) {
+    pub fn send_response(&mut self, data: String) {
         self.conn.write((data + "\n").as_bytes()).ok();
     }
 

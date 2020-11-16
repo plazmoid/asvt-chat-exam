@@ -1,45 +1,50 @@
 use nom::{
-    branch,
+    branch::alt,
     bytes::complete::{is_not, tag, take_while},
-    error::context,
+    combinator::eof,
+    error::VerboseError,
     multi::separated_list0,
     sequence::separated_pair,
     IResult,
 };
+use std::collections::HashMap;
 
-use crate::api::Command;
+use crate::api::{Args, Command};
 
 const SEP: &str = "|";
+
 type Data = str;
+type IVerbResult<Left, Parsed> = IResult<Left, Parsed, VerboseError<Left>>;
 
 fn is_alpha(c: char) -> bool {
     let chr = c as u8;
     (chr >= 0x41 && chr <= 0x5A) || (chr >= 0x61 && chr <= 0x7A)
 }
 
-fn parse_args(s: &Data) -> IResult<&Data, Vec<(&Data, &Data)>> {
+fn parse_args(s: &Data) -> IVerbResult<&Data, Vec<(&Data, &Data)>> {
     let arg_line = separated_pair(take_while(is_alpha), tag("="), is_not(SEP));
     separated_list0(tag(SEP), arg_line)(s)
 }
 
-fn parse_command(s: &Data) -> IResult<&Data, &Data> {
-    take_while(is_alpha)(s)
-}
-
-pub fn parse_request(s: &Data) -> IResult<&Data, Command> {
-    let (s, cmd) = parse_command(&s)?;
-    let (s, _) = context("Delim", tag(SEP))(s)?;
-    let (s, args) = parse_args(s)?;
-    let command = Command {
-        cmd: String::from(cmd),
-        args: args
-            .into_iter()
-            .map(|(k, v)| (String::from(k), String::from(v)))
-            .collect(),
+pub fn parse_request(s: &Data) -> IVerbResult<&Data, Command> {
+    let (s, cmd) = is_not(SEP)(s)?;
+    let (s, separator) = alt((tag(SEP), eof))(s)?;
+    let (s, args) = if separator == SEP {
+        parse_args(s)?
+    } else {
+        (s, vec![])
     };
+    let args: Args = {
+        let mut _args = HashMap::new();
+        args.into_iter().for_each(|(k, v)| {
+            _args.insert(k.trim(), v);
+        });
+        _args
+    };
+    let command = Command { cmd, args };
     Ok((s, command))
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,3 +62,4 @@ mod tests {
         assert_eq!(expected, result);
     }
 }
+*/
