@@ -108,4 +108,8 @@ impl ClientDB {
             Ok(())
         }
     }
+
+    pub fn is_logged_in(addr: &SocketAddr) -> bool {
+        Self::_lock_read().get(addr).unwrap().login.is_some()
+    }
 }

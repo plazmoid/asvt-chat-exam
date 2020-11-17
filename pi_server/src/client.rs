@@ -8,7 +8,8 @@ use crate::db::ClientDB;
 use crate::protocol::parse_request;
 
 const CMD_BUF_SIZE: usize = 256;
-const SILENT_CONN_TIMEOUT: u64 = 40;
+const SILENT_CONN_TIMEOUT: usize = 40;
+const HALT_MS: u64 = 10;
 
 #[derive(Debug, Clone)]
 pub enum CliJob {
@@ -41,14 +42,15 @@ impl Client {
     }
 
     fn _handle_req(mut self) {
+        let mut silence_counter = 0; // instead of not working with non-blocking sockets timeout
         let mut drop_trigger = false;
         let mut data = [0u8; CMD_BUF_SIZE];
         self.conn
             .set_nonblocking(true)
             .expect("Can't make socket non-blocking");
-        self.conn
-            .set_read_timeout(Some(Duration::from_secs(SILENT_CONN_TIMEOUT)))
-            .expect("Can't set timeout");
+        // self.conn
+        //     .set_read_timeout(Some(Duration::from_secs(SILENT_CONN_TIMEOUT)))
+        //     .expect("Can't set timeout");
         loop {
             data.iter_mut().for_each(|e| *e = 0u8);
             let read_result = Read::by_ref(&mut self.conn)
@@ -56,6 +58,7 @@ impl Client {
                 .read(&mut data);
             match read_result {
                 Ok(size) => {
+                    silence_counter = 0;
                     if size == 0 {
                         break;
                     }
@@ -98,7 +101,15 @@ impl Client {
                     self.send_response(response);
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    sleep(Duration::from_millis(10));
+                    if silence_counter / 100 >= SILENT_CONN_TIMEOUT {
+                        info!(
+                            "Connection with {} closed due to timeout",
+                            try_append_username(&self.addr)
+                        );
+                        self.shutdown();
+                    }
+                    sleep(Duration::from_millis(HALT_MS));
+                    silence_counter += 1;
                 }
                 Err(e) => {
                     error!("Error in {} occured: {}", self.addr, e.to_string());
@@ -115,7 +126,7 @@ impl Client {
             .for_each(|job| match job {
                 CliJob::Exit => self.shutdown(),
                 CliJob::SendMsg(sender, msg) => {
-                    let full_msg = format!("Message from {}: {}", sender, msg);
+                    let full_msg = format!("{}: {}", sender, msg);
                     self.send_response(full_msg)
                 }
             });
