@@ -46,9 +46,9 @@ impl Client {
         self.conn
             .set_nonblocking(true)
             .expect("Can't make socket non-blocking");
-        // self.conn
-        //     .set_read_timeout(Some(Duration::from_secs(SILENT_CONN_TIMEOUT)))
-        //     .expect("Can't set timeout");
+        self.conn
+            .set_read_timeout(Some(Duration::from_secs(SILENT_CONN_TIMEOUT)))
+            .expect("Can't set timeout");
         loop {
             data.iter_mut().for_each(|e| *e = 0u8);
             let read_result = Read::by_ref(&mut self.conn)
