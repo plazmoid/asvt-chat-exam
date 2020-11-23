@@ -1,16 +1,16 @@
-use crate::{api::RResult, client::CliJob};
+use crate::{api::RResult, client::CliTask};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::SystemTime;
 
-struct CliMeta {
-    jobs: Vec<CliJob>,
+struct CliData {
+    jobs: Vec<CliTask>,
     login: Option<String>,
     last_cmd_ts: SystemTime,
 }
 
-type CDB = HashMap<SocketAddr, CliMeta>;
+type CDB = HashMap<SocketAddr, CliData>;
 
 lazy_static! {
     static ref DB: RwLock<CDB> = RwLock::new(HashMap::new());
@@ -27,18 +27,24 @@ impl ClientDB {
         DB.write().unwrap()
     }
 
-    fn check_cmd_timeout(addr: &SocketAddr) -> RResult<()> {
+    fn update_cmd_ts(addr: &SocketAddr) {
+        Self::_lock_write().get_mut(addr).unwrap().last_cmd_ts = SystemTime::now();
+    }
+
+    fn check_cmd_timeout(addr: &SocketAddr, update: bool) -> RResult<()> {
         let last_cmd_ts: SystemTime = Self::_lock_read().get(addr).unwrap().last_cmd_ts;
-        if last_cmd_ts.elapsed().unwrap().as_secs() <= 1 {
+        if last_cmd_ts.elapsed().unwrap().as_secs() < 1 {
             return Err("Too fast".to_string());
         } else {
-            Self::_lock_write().get_mut(addr).unwrap().last_cmd_ts = SystemTime::now();
+            if update {
+                Self::update_cmd_ts(addr);
+            }
             return Ok(());
         }
     }
 
     pub fn init(addr: SocketAddr) {
-        let cli_meta = CliMeta {
+        let cli_meta = CliData {
             jobs: vec![],
             login: None,
             last_cmd_ts: SystemTime::now(),
@@ -46,7 +52,7 @@ impl ClientDB {
         Self::_lock_write().insert(addr, cli_meta);
     }
 
-    pub fn get_all_client_jobs(addr: &SocketAddr) -> Vec<CliJob> {
+    pub fn get_all_client_jobs(addr: &SocketAddr) -> Vec<CliTask> {
         Self::_lock_write()
             .get_mut(addr)
             .unwrap()
@@ -76,20 +82,22 @@ impl ClientDB {
             .map(|(k, _)| *k)
     }
 
-    pub fn add_job(addr: &SocketAddr, job: CliJob) -> RResult<()> {
+    pub fn add_task(addr: &SocketAddr, job: CliTask, has_timeout: bool) -> RResult<()> {
+        Self::check_cmd_timeout(addr, has_timeout)?;
         Self::_lock_write().get_mut(addr).unwrap().jobs.push(job);
         Ok(())
     }
 
-    pub fn add_broadcast_job(addr_from: &SocketAddr, job: CliJob) -> RResult<()> {
-        Self::check_cmd_timeout(addr_from)?;
+    pub fn add_broadcast_task(addr_from: &SocketAddr, job: CliTask) -> RResult<()> {
+        Self::check_cmd_timeout(addr_from, false)?;
         let addrs = Self::_lock_read()
             .keys()
             .map(|k| *k)
             .collect::<Vec<SocketAddr>>();
-        addrs
-            .into_iter()
-            .for_each(|addr| ClientDB::add_job(&addr, job.clone()).unwrap());
+        for addr in addrs.into_iter() {
+            ClientDB::add_task(&addr, job.clone(), false)?;
+        }
+        Self::update_cmd_ts(addr_from);
         Ok(())
     }
 

@@ -44,7 +44,7 @@ pub fn parse_request(s: &Data) -> IVerbResult<&Data, Command> {
     let command = Command { cmd, args };
     Ok((s, command))
 }
-/*
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,14 +52,15 @@ mod tests {
     fn test_command_parse() {
         let cmd = "SENDALL|MSG=qwe|TO=asde zxc";
         let expected = Command {
-            cmd: "SENDALL".to_string(),
-            args: vec![
-                ("MSG".to_string(), "qwe".to_string()),
-                ("TO".to_string(), "asde zxc".to_string()),
-            ],
+            cmd: "SENDALL",
+            args: {
+                let mut args: HashMap<&str, &str> = HashMap::new();
+                args.insert("MSG", "qwe");
+                args.insert("TO", "asde zxc");
+                args
+            },
         };
         let (_, result) = parse_request(cmd).unwrap();
         assert_eq!(expected, result);
     }
 }
-*/

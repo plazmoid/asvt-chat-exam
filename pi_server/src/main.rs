@@ -22,6 +22,7 @@ extern crate simplelog;
 use simplelog::*;
 
 const PORT: &str = "81";
+const LOGFILE: &str = "pi_server.log";
 
 fn init_logger(show_stderr: bool) {
     let log_cfg = ConfigBuilder::new()
@@ -31,7 +32,7 @@ fn init_logger(show_stderr: bool) {
     let logfile = OpenOptions::new()
         .append(true)
         .create(true)
-        .open("pi_server.log")
+        .open(LOGFILE)
         .unwrap();
     let mut loggers: Vec<Box<dyn simplelog::SharedLogger>> = vec![WriteLogger::new(
         LevelFilter::Debug,

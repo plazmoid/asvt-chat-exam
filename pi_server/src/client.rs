@@ -12,7 +12,7 @@ const SILENT_CONN_TIMEOUT: usize = 40;
 const HALT_MS: u64 = 10;
 
 #[derive(Debug, Clone)]
-pub enum CliJob {
+pub enum CliTask {
     // from, msg
     SendMsg(String, String),
     Exit,
@@ -60,6 +60,10 @@ impl Client {
                 Ok(size) => {
                     silence_counter = 0;
                     if size == 0 {
+                        info!(
+                            "Connection with {} is closed",
+                            try_append_username(&self.addr)
+                        );
                         break;
                     }
                     if size < CMD_BUF_SIZE {
@@ -85,7 +89,9 @@ impl Client {
                     let response = match response {
                         Ok(resp) => match resp {
                             Ok(resp) => {
-                                info!("{}", _log_msg);
+                                if cmd.to_lowercase() != "ping" {
+                                    info!("{}", _log_msg);
+                                }
                                 resp
                             }
                             Err(e) => {
@@ -102,10 +108,7 @@ impl Client {
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if silence_counter / 100 >= SILENT_CONN_TIMEOUT {
-                        info!(
-                            "Connection with {} closed due to timeout",
-                            try_append_username(&self.addr)
-                        );
+                        self.send_response("Error: Timeout");
                         self.shutdown();
                     }
                     sleep(Duration::from_millis(HALT_MS));
@@ -124,16 +127,16 @@ impl Client {
         ClientDB::get_all_client_jobs(&self.addr)
             .into_iter()
             .for_each(|job| match job {
-                CliJob::Exit => self.shutdown(),
-                CliJob::SendMsg(sender, msg) => {
+                CliTask::Exit => self.shutdown(),
+                CliTask::SendMsg(sender, msg) => {
                     let full_msg = format!("{}: {}", sender, msg);
                     self.send_response(full_msg)
                 }
             });
     }
 
-    fn send_response(&mut self, data: String) {
-        self.conn.write((data + "\n").as_bytes()).ok();
+    fn send_response<S: Into<String>>(&mut self, data: S) {
+        self.conn.write((data.into() + "\n").as_bytes()).ok();
     }
 
     fn shutdown(&self) {

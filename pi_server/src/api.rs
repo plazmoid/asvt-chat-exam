@@ -1,4 +1,4 @@
-use crate::client::CliJob;
+use crate::client::CliTask;
 use crate::db::ClientDB;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -28,8 +28,8 @@ lazy_static! {
         rules.insert("ECHO", (vec!["msg"], API::echo as Handler));
         rules.insert("USERS", (vec![], API::get_users as Handler));
         rules.insert("LOGIN", (vec!["username"], API::login as Handler));
-        /*rules.insert("SENDTO", (vec!["username", "msg"], API::send_to as Handler));
-        rules.insert("SENDALL", (vec!["msg"], API::send_to_all as Handler));*/
+        rules.insert("SENDTO", (vec!["username", "msg"], API::send_to as Handler));
+        rules.insert("SENDALL", (vec!["msg"], API::send_to_all as Handler));
         rules.insert("EXIT", (vec![], API::cli_exit as Handler));
         rules
     };
@@ -41,7 +41,7 @@ impl API {
     fn _help() -> String {
         let mut cmds = RULES.keys().map(|k| *k).collect::<Vec<&str>>();
         cmds.sort();
-        format!("Available commands: {}", cmds.join(", "))
+        format!("v. 0.2 \nAvailable commands: {}", cmds.join(", "))
     }
 
     pub fn login(h: HandleInfo) -> RResult<String> {
@@ -54,7 +54,7 @@ impl API {
     }
 
     pub fn cli_exit(h: HandleInfo) -> RResult<String> {
-        ClientDB::add_job(h.addr, CliJob::Exit).map(|_| "Bye".to_string())
+        ClientDB::add_task(h.addr, CliTask::Exit, false).map(|_| "Bye".to_string())
     }
 
     pub fn get_users(h: HandleInfo) -> RResult<String> {
@@ -72,7 +72,7 @@ impl API {
         };
         let sender = sender + " (to all)";
         let message = h.args.get("msg").unwrap().to_string();
-        ClientDB::add_broadcast_job(h.addr, CliJob::SendMsg(sender, message))
+        ClientDB::add_broadcast_task(h.addr, CliTask::SendMsg(sender, message))
             .map(|_| "Sent!".to_string())
     }
 
@@ -90,8 +90,8 @@ impl API {
             Some(s) => s,
             None => h.addr.to_string(),
         };
-        let job = CliJob::SendMsg(sender, message);
-        ClientDB::add_job(&receiver, job).map(|_| "Sent!".to_string())
+        let task = CliTask::SendMsg(sender, message);
+        ClientDB::add_task(&receiver, task, true).map(|_| "Sent!".to_string())
     }
 
     pub fn ping(_: HandleInfo) -> RResult<String> {
@@ -111,9 +111,8 @@ pub fn process_command(cmd: Command, addr: &SocketAddr) -> RResult<String> {
         };
     let cmd_arg_names = cmd.args.keys().collect::<Vec<&&str>>();
     for argn in required_args.iter() {
-        match cmd_arg_names.contains(&argn) {
-            true => (),
-            false => return Err(format!("Missing args: {}", required_args.join(", "))),
+        if !cmd_arg_names.contains(&argn) {
+            return Err(format!("Required args: {}", required_args.join(", ")));
         }
     }
     let h_info = HandleInfo {
