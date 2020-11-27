@@ -1,11 +1,13 @@
 use crate::client::CliTask;
 use crate::db::ClientDB;
+use crate::error::SError;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-pub type RResult<T> = std::result::Result<T, String>;
+pub type RResult<T> = std::result::Result<T, SError>;
+pub type HResult = RResult<HandleResult>;
 pub type Args<'s> = HashMap<&'s str, &'s str>;
-type Handler = fn(HandleInfo) -> RResult<String>;
+type Handler = fn(HandleInfo) -> HResult;
 
 const NOT_LOGGED_IN: &str = "Please log in";
 
@@ -15,9 +17,29 @@ pub struct Command<'cmd> {
     pub args: Args<'cmd>,
 }
 
+pub struct HandleResult(pub String);
+
+impl From<String> for HandleResult {
+    fn from(s: String) -> HandleResult {
+        HandleResult(s)
+    }
+}
+
+impl From<&'static str> for HandleResult {
+    fn from(s: &'static str) -> HandleResult {
+        HandleResult(s.to_string())
+    }
+}
+
+impl From<()> for HandleResult {
+    fn from(_: ()) -> HandleResult {
+        HandleResult(String::new())
+    }
+}
+
 pub struct HandleInfo<'cmd> {
     pub args: Args<'cmd>,
-    pub addr: &'cmd SocketAddr,
+    pub addr: String,
 }
 
 lazy_static! {
@@ -27,9 +49,12 @@ lazy_static! {
         rules.insert("PING", (vec![], API::ping as Handler));
         rules.insert("ECHO", (vec!["msg"], API::echo as Handler));
         rules.insert("USERS", (vec![], API::get_users as Handler));
-        rules.insert("LOGIN", (vec!["username"], API::login as Handler));
+        rules.insert(
+            "LOGIN",
+            (vec!["username", "password"], API::login as Handler),
+        );
         rules.insert("SENDTO", (vec!["username", "msg"], API::send_to as Handler));
-        rules.insert("SENDALL", (vec!["msg"], API::send_to_all as Handler));
+        rules.insert("SNDALL", (vec!["msg"], API::send_to_all as Handler));
         rules.insert("EXIT", (vec![], API::cli_exit as Handler));
         rules
     };
@@ -41,65 +66,75 @@ impl API {
     fn _help() -> String {
         let mut cmds = RULES.keys().map(|k| *k).collect::<Vec<&str>>();
         cmds.sort();
-        format!("v. 0.2 \nAvailable commands: {}", cmds.join(", "))
+        format!("v. 0.3 \nAvailable commands: {}", cmds.join(", "))
     }
 
-    pub fn login(h: HandleInfo) -> RResult<String> {
-        let login = h.args.get("username").unwrap();
-        ClientDB::set_login(h.addr, login.to_string()).map(|_| format!("Now you are {}", login))
-    }
-
-    pub fn get_help(_: HandleInfo) -> RResult<String> {
-        Ok(API::_help())
-    }
-
-    pub fn cli_exit(h: HandleInfo) -> RResult<String> {
-        ClientDB::add_task(h.addr, CliTask::Exit, false).map(|_| "Bye".to_string())
-    }
-
-    pub fn get_users(h: HandleInfo) -> RResult<String> {
-        let users = ClientDB::get_all_users(h.addr);
-        Ok(users.join("\n"))
-    }
-
-    pub fn send_to_all(h: HandleInfo) -> RResult<String> {
-        if !ClientDB::is_logged_in(h.addr) {
-            return Err(NOT_LOGGED_IN.to_string());
+    pub fn login(h: HandleInfo) -> HResult {
+        let username = h.args.get("username").unwrap().to_string();
+        let password = h.args.get("password").unwrap().to_string();
+        if username.len() > 20 {
+            return Err(SError::NameIsTooLong);
         }
-        let sender = match ClientDB::get_username(h.addr) {
-            Some(s) => s,
-            None => h.addr.to_string(),
+        //ClientDB::set_login(h.addr, username, password).map(HandleResult::from)
+        Err(SError::FixIt)
+    }
+
+    pub fn get_help(_: HandleInfo) -> HResult {
+        Ok(API::_help().into())
+    }
+
+    pub fn cli_exit(h: HandleInfo) -> HResult {
+        //ClientDB::add_task(h.addr, CliTask::Exit, false).map(HandleResult::from)
+        Err(SError::FixIt)
+    }
+
+    pub fn get_users(h: HandleInfo) -> HResult {
+        let users = ClientDB::get_all_users(&h.addr)?;
+        Ok(users.join("\n").into())
+    }
+
+    pub fn send_to_all(h: HandleInfo) -> HResult {
+        if !ClientDB::is_logged_in(&h.addr)? {
+            return Err(SError::NotLoggedIn);
+        }
+        let sender = match ClientDB::get_username(&h.addr) {
+            Ok(s) => s,
+            Err(_) => h.addr.to_string(),
         };
-        let sender = sender + " (to all)";
+        let sender = sender + " [to all]";
         let message = h.args.get("msg").unwrap().to_string();
-        ClientDB::add_broadcast_task(h.addr, CliTask::SendMsg(sender, message))
-            .map(|_| "Sent!".to_string())
+        //ClientDB::add_broadcast_task(h.addr, CliTask::SendMsg(sender, message))
+        //    .map(HandleResult::from)
+        Err(SError::FixIt)
     }
 
-    pub fn send_to(h: HandleInfo) -> RResult<String> {
-        if !ClientDB::is_logged_in(h.addr) {
-            return Err(NOT_LOGGED_IN.to_string());
+    pub fn send_to(h: HandleInfo) -> HResult {
+        if !ClientDB::is_logged_in(&h.addr)? {
+            return Err(SError::NotLoggedIn);
         }
+        /*
         let receiver = h.args.get("username").unwrap().to_string();
-        let receiver = match ClientDB::get_client_by_username(receiver) {
+        let receiver = match ClientDB::get_client_by_username(receiver)? {
             Some(r) => r,
-            None => return Err("No such user".to_string()),
+            None => return Err(SError::NoSuchUser),
         };
         let message = h.args.get("msg").unwrap().to_string();
-        let sender = match ClientDB::get_username(h.addr) {
+        let sender = match ClientDB::get_username(&h.addr)? {
             Some(s) => s,
             None => h.addr.to_string(),
         };
         let task = CliTask::SendMsg(sender, message);
-        ClientDB::add_task(&receiver, task, true).map(|_| "Sent!".to_string())
+        ClientDB::add_task(&receiver, task, true).map(HandleResult::from)
+        */
+        Err(SError::FixIt)
     }
 
-    pub fn ping(_: HandleInfo) -> RResult<String> {
-        Ok(String::new())
+    pub fn ping(_: HandleInfo) -> HResult {
+        Ok(().into())
     }
 
-    pub fn echo(h: HandleInfo) -> RResult<String> {
-        Ok(h.args.get("msg").unwrap().to_string())
+    pub fn echo(h: HandleInfo) -> HResult {
+        Ok(h.args.get("msg").unwrap().to_string().into())
     }
 }
 
@@ -107,17 +142,17 @@ pub fn process_command(cmd: Command, addr: &SocketAddr) -> RResult<String> {
     let (required_args, handler): &(Vec<&str>, Handler) =
         match RULES.get(cmd.cmd.to_uppercase().trim()) {
             Some(m) => m,
-            None => return Err(format!("Unknown command")),
+            None => return Err(SError::UnknownCommand),
         };
     let cmd_arg_names = cmd.args.keys().collect::<Vec<&&str>>();
     for argn in required_args.iter() {
         if !cmd_arg_names.contains(&argn) {
-            return Err(format!("Required args: {}", required_args.join(", ")));
+            return Err(SError::WrongArgs(required_args.join(", ")));
         }
     }
     let h_info = HandleInfo {
         args: cmd.args,
-        addr,
+        addr: addr.to_string(),
     };
-    handler(h_info)
+    handler(h_info).map(|r| r.0)
 }

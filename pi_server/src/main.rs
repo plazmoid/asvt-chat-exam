@@ -9,6 +9,7 @@ use utils::daemonize;
 mod api;
 mod client;
 mod db;
+mod error;
 mod protocol;
 
 use client::Client;
