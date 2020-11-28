@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::OpenOptions;
 use std::net::TcpListener;
+use std::panic;
 use std::thread;
 
 mod utils;
@@ -50,6 +51,10 @@ fn init_logger(show_stderr: bool) {
     CombinedLogger::init(loggers).unwrap();
 }
 
+fn set_panic_hook() {
+    panic::set_hook(Box::new(|info| error!("Critical: {}", info)));
+}
+
 fn main() {
     let mut is_daemon = false;
     if let Some(arg) = env::args().nth(1) {
@@ -61,6 +66,7 @@ fn main() {
         }
     }
     init_logger(!is_daemon);
+    set_panic_hook();
     let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT)).unwrap();
     info!("Listening on port {}", PORT);
     for stream in listener.incoming() {

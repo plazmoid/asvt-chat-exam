@@ -1,5 +1,6 @@
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::panic;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -40,7 +41,7 @@ impl Client {
             addr: addr.clone(),
         };
         ClientDB::add_client(addr);
-        instance._handle_req()
+        panic::catch_unwind(|| instance._handle_req()).ok();
     }
 
     fn _handle_req(mut self) {

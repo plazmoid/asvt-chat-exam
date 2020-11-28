@@ -11,9 +11,7 @@ pub fn daemonize() -> Result<i32, String> {
         setsig(Signal::SIGTSTP, SigHandler::SigIgn);
     }
     for fd in 0..=2 {
-        match fdclose(fd) {
-            _ => (),
-        }
+        fdclose(fd).ok();
     }
 
     unsafe {
