@@ -11,7 +11,8 @@
 #include <time.h>
 #include <arpa/inet.h>
 
-#define HOST "3.9.16.40"
+//#define HOST "3.9.16.40"
+#define HOST "127.0.0.1"
 #define PORT 81
 #define MAX_BUF_SIZE 256
 
@@ -57,17 +58,8 @@ int sock_init() {
 }
 //*******************SERVICE FUNCTIONS******************
 
-//*******************COMMANDS HANDLING******************
+//*******************COMMAND HANDLING******************
 
-
-// Handlers are functions that convert cmd_args to the protocol format and send data to the server
-//
-// Example:
-// stdin: sendmsg alex "hi, alex!";
-// result (server-acceptable string): SENDMSG|TO=alex|MSG=hi, alex
-//
-// Handlers may only send data
-// because you'll receive answers from server with select()
 
 int send_buf(int sock_fd, char* buf) {
 	return errwrap(send(sock_fd, buf, strlen(buf), 0));
@@ -75,11 +67,14 @@ int send_buf(int sock_fd, char* buf) {
 
 int handle_ECHO(int sock_fd) {
 	char* cmd = "ECHO";
-	char cmd_args[MAX_BUF_SIZE];
-	char buf[MAX_BUF_SIZE];
-	scanf("%s", cmd_args);
-	sprintf(buf, "%s %s", cmd, cmd_args);
-	return send_buf(sock_fd, buf);
+	// Сервер принимает команду ECHO с 1 аргументом msg
+	// Необходимо считать аргумент к ECHO с stdin
+	// и отправить на сервер команду в формате протокола, показанного в документации.
+	// Если всё сделано правильно, сообщение из аргумента вернётся и отобразится в клиенте
+	// Для отладки можно использовать netcat
+	// Или переписать всё на python
+	// Успешное выполнение задания - наличие в логах сервера успешно выполненной команды ECHO <ваше_имя>
+	return send_buf(sock_fd, cmd);
 }
 
 int handle_PING(int sock_fd) {
@@ -106,7 +101,8 @@ void main_loop() {
 		"1. Echo <msg>\n"
 		"2. Ping\n"
 		"3. Show users\n"
-		"4. Show help\n\n";
+		"4. Show help\n"
+		"5. Exit\n\n";
 
 	while(1) {
 		printf(help);
@@ -128,6 +124,9 @@ void main_loop() {
 				handle_HELP(sock_fd);
 				break;
 			}
+			case 5: {
+				goto _exit;
+			}
 			default: {
 				printf("Wrong option");
 				continue;
@@ -137,9 +136,10 @@ void main_loop() {
 		errwrap(recv(sock_fd, result, MAX_BUF_SIZE, 0));
 		printf("Response: \n%s\n", result);
 	}
+_exit:
     close(sock_fd);
 }
-//*******************COMMANDS HANDLING******************
+//*******************COMMAND HANDLING******************
 
 int main(int argc, char **argv) {
 	main_loop();

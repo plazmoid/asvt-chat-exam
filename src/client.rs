@@ -34,8 +34,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn handle(stream: TcpStream) {
-        let addr = stream.peer_addr().unwrap();
+    pub fn handle(stream: TcpStream, addr: SocketAddr) {
         let instance = Client {
             conn: stream,
             addr: addr.clone(),

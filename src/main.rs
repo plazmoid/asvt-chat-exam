@@ -72,8 +72,12 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                info!("New connection: {}", stream.peer_addr().unwrap());
-                thread::spawn(move || Client::handle(stream));
+                let addr = match stream.peer_addr() {
+                    Ok(a) => a,
+                    Err(_) => continue,
+                };
+                info!("New connection: {}", &addr);
+                thread::spawn(move || Client::handle(stream, addr));
             }
             Err(e) => {
                 error!("Error: {}", e);
