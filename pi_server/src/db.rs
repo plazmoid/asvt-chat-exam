@@ -2,9 +2,11 @@ use crate::{api::RResult, client::CliTask, error::SError};
 use std::net::SocketAddr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::SystemTime;
+use uuid::Uuid;
 
 struct CliData {
     addr: SocketAddr,
+    uid: Uuid,
     jobs: Vec<CliTask>,
     login: Option<String>,
     last_cmd_ts: SystemTime,
@@ -56,6 +58,7 @@ impl ClientDB {
     pub fn add_client(addr: SocketAddr) {
         let cli_meta = CliData {
             addr: addr.clone(),
+            uid: Uuid::new_v4(),
             jobs: vec![],
             login: None,
             last_cmd_ts: SystemTime::now(),
@@ -95,7 +98,7 @@ impl ClientDB {
         Self::_lock_read()
             .iter()
             .find(|c| c.addr == *addr)
-            .unwrap()
+            .expect(&format!("can't find {}", addr))
             .login
             .clone()
     }
@@ -135,6 +138,10 @@ impl ClientDB {
         Self::_lock_write().retain(|cli| cli.addr != *addr);
     }
 
+    pub fn remove_cli_by_uid(uid: &Uuid) {
+        Self::_lock_write().retain(|cli| cli.uid != *uid);
+    }
+
     pub fn set_online_status(addr: &SocketAddr, online: bool) {
         Self::_lock_write()
             .iter_mut()
@@ -158,7 +165,12 @@ impl ClientDB {
             }
             Ok(())
         } else {
-            let mut del_old = false;
+            let mut del_old: Option<Uuid> = None;
+            let del_uid = Self::_lock_read()
+                .iter()
+                .find(|cli| cli.addr == *addr)
+                .unwrap()
+                .uid;
             if let Some(cli) = Self::_lock_write()
                 .iter_mut()
                 .find(|cli| cli.login.as_ref() == Some(&login))
@@ -169,12 +181,12 @@ impl ClientDB {
                 if cli.online {
                     return Err(SError::AlreadyLoggedIn);
                 }
+                del_old = Some(del_uid);
                 cli.addr = *addr;
-                del_old = true;
+                cli.online = true;
             }
-            if del_old {
-                dbg!("removing ", &addr);
-                Self::remove_cli(addr); // DEADLOCK FUCK ME
+            if del_old.is_some() {
+                Self::remove_cli_by_uid(&del_old.unwrap());
                 return Ok(());
             }
             if let Some(client) = Self::_lock_write().iter_mut().find(|cli| cli.addr == *addr) {
