@@ -21,9 +21,9 @@ pub enum CliTask {
 }
 
 fn try_append_username(addr: &SocketAddr) -> String {
-    match ClientDB::get_username(&addr.to_string()) {
-        Ok(n) => format!("{} ({})", addr, n),
-        Err(_) => format!("{}", addr),
+    match ClientDB::get_username(&addr) {
+        Some(n) => format!("{} ({})", addr, n),
+        None => format!("{}", addr),
     }
 }
 
@@ -39,7 +39,7 @@ impl Client {
             conn: stream,
             addr: addr.clone(),
         };
-        ClientDB::add_client(&addr.to_string());
+        ClientDB::add_client(addr);
         instance._handle_req()
     }
 
@@ -105,10 +105,10 @@ impl Client {
                     self.send_response(response);
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if silence_counter / 100 >= SILENT_CONN_TIMEOUT {
+                    /*if silence_counter / 100 >= SILENT_CONN_TIMEOUT {
                         self.send_response("TIMEOUT");
                         self.shutdown();
-                    }
+                    }*/
                     sleep(Duration::from_millis(HALT_MS));
                     silence_counter += 1;
                 }
@@ -122,8 +122,7 @@ impl Client {
     }
 
     fn apply_jobs(&mut self) {
-        ClientDB::get_all_client_jobs(&self.addr.to_string())
-            .unwrap()
+        ClientDB::get_all_client_jobs(&self.addr)
             .into_iter()
             .for_each(|job| match job {
                 CliTask::Exit => self.shutdown(),
@@ -145,6 +144,9 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        ClientDB::set_online_status(&self.addr.to_string(), false);
+        ClientDB::set_online_status(&self.addr, false);
+        if !ClientDB::is_logged_in(&self.addr) {
+            ClientDB::remove_cli(&self.addr);
+        }
     }
 }

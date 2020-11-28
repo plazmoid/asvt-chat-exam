@@ -9,8 +9,6 @@ pub type HResult = RResult<HandleResult>;
 pub type Args<'s> = HashMap<&'s str, &'s str>;
 type Handler = fn(HandleInfo) -> HResult;
 
-const NOT_LOGGED_IN: &str = "Please log in";
-
 #[derive(PartialEq, Debug)]
 pub struct Command<'cmd> {
     pub cmd: &'cmd str,
@@ -39,7 +37,7 @@ impl From<()> for HandleResult {
 
 pub struct HandleInfo<'cmd> {
     pub args: Args<'cmd>,
-    pub addr: String,
+    pub addr: &'cmd SocketAddr,
 }
 
 lazy_static! {
@@ -75,8 +73,7 @@ impl API {
         if username.len() > 20 {
             return Err(SError::NameIsTooLong);
         }
-        //ClientDB::set_login(h.addr, username, password).map(HandleResult::from)
-        Err(SError::FixIt)
+        ClientDB::set_login(h.addr, username, password).map(HandleResult::from)
     }
 
     pub fn get_help(_: HandleInfo) -> HResult {
@@ -84,49 +81,44 @@ impl API {
     }
 
     pub fn cli_exit(h: HandleInfo) -> HResult {
-        //ClientDB::add_task(h.addr, CliTask::Exit, false).map(HandleResult::from)
-        Err(SError::FixIt)
+        ClientDB::add_task(h.addr, CliTask::Exit, false).map(HandleResult::from)
     }
 
     pub fn get_users(h: HandleInfo) -> HResult {
-        let users = ClientDB::get_all_users(&h.addr)?;
+        let users = ClientDB::get_all_users(&h.addr);
         Ok(users.join("\n").into())
     }
 
     pub fn send_to_all(h: HandleInfo) -> HResult {
-        if !ClientDB::is_logged_in(&h.addr)? {
+        if !ClientDB::is_logged_in(&h.addr) {
             return Err(SError::NotLoggedIn);
         }
         let sender = match ClientDB::get_username(&h.addr) {
-            Ok(s) => s,
-            Err(_) => h.addr.to_string(),
+            Some(s) => s,
+            None => h.addr.to_string(),
         };
         let sender = sender + " [to all]";
         let message = h.args.get("msg").unwrap().to_string();
-        //ClientDB::add_broadcast_task(h.addr, CliTask::SendMsg(sender, message))
-        //    .map(HandleResult::from)
-        Err(SError::FixIt)
+        ClientDB::add_broadcast_task(h.addr, CliTask::SendMsg(sender, message))
+            .map(HandleResult::from)
     }
 
     pub fn send_to(h: HandleInfo) -> HResult {
-        if !ClientDB::is_logged_in(&h.addr)? {
+        if !ClientDB::is_logged_in(&h.addr) {
             return Err(SError::NotLoggedIn);
         }
-        /*
         let receiver = h.args.get("username").unwrap().to_string();
-        let receiver = match ClientDB::get_client_by_username(receiver)? {
+        let receiver = match ClientDB::get_client_by_username(receiver) {
             Some(r) => r,
             None => return Err(SError::NoSuchUser),
         };
         let message = h.args.get("msg").unwrap().to_string();
-        let sender = match ClientDB::get_username(&h.addr)? {
+        let sender = match ClientDB::get_username(&h.addr) {
             Some(s) => s,
             None => h.addr.to_string(),
         };
         let task = CliTask::SendMsg(sender, message);
         ClientDB::add_task(&receiver, task, true).map(HandleResult::from)
-        */
-        Err(SError::FixIt)
     }
 
     pub fn ping(_: HandleInfo) -> HResult {
@@ -152,7 +144,7 @@ pub fn process_command(cmd: Command, addr: &SocketAddr) -> RResult<String> {
     }
     let h_info = HandleInfo {
         args: cmd.args,
-        addr: addr.to_string(),
+        addr: addr,
     };
     handler(h_info).map(|r| r.0)
 }

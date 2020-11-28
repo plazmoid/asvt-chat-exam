@@ -1,8 +1,10 @@
-use rusqlite::Error as SQLError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SError {
+    #[error("Already logged in")]
+    AlreadyLoggedIn,
+
     #[error("Too fast")]
     DOS,
 
@@ -27,12 +29,6 @@ pub enum SError {
     #[error("Wrong password")]
     WrongPassword,
 
-    #[error(transparent)]
-    DBError(#[from] SQLError),
-
     #[error("Syntax error: {}", .0)]
     SyntaxError(String),
-
-    #[error("FIX IT !1!11ONE")]
-    FixIt,
 }
