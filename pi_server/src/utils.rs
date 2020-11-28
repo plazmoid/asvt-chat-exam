@@ -2,7 +2,7 @@ use nix::{
     sys::signal::{signal, SigHandler, Signal},
     unistd::{close as fdclose, fork, getppid, setsid, ForkResult},
 };
-use std::process::exit;
+use std::{process::exit, thread, time};
 
 pub fn daemonize() -> Result<i32, String> {
     if getppid().as_raw() != 1 {
@@ -34,4 +34,11 @@ pub fn setsig(sig: Signal, hnd: SigHandler) {
     unsafe {
         signal(sig, hnd).unwrap();
     }
+}
+
+pub fn threaded_task_runner(task: impl Fn() + Send + 'static, delay: time::Duration) {
+    thread::spawn(move || loop {
+        thread::sleep(delay);
+        task();
+    });
 }

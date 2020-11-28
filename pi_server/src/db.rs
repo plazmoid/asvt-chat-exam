@@ -1,9 +1,14 @@
-use crate::{api::RResult, client::CliTask, error::SError};
+use crate::{api::RResult, client::CliTask, error::SError, utils::threaded_task_runner};
+use std::fs::{File, OpenOptions};
 use std::net::SocketAddr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+
+use serde::{Deserialize, Serialize};
+use serde_json;
 use uuid::Uuid;
 
+#[derive(Serialize, Deserialize, Debug)]
 struct CliData {
     addr: SocketAddr,
     uid: Uuid,
@@ -14,10 +19,23 @@ struct CliData {
     online: bool,
 }
 
+const DB_PATH: &str = "users.json";
+
 type CDB = Vec<CliData>;
 
 lazy_static! {
-    static ref DB: RwLock<CDB> = RwLock::new(vec![]);
+    static ref DB: RwLock<CDB> = RwLock::new({
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(DB_PATH)
+            .unwrap();
+        let mut db: Vec<CliData> = serde_json::from_reader(file).unwrap_or(vec![]);
+        db.iter_mut().for_each(|cli| cli.online = false);
+        threaded_task_runner(|| ClientDB::sync_db(), Duration::from_millis(500));
+        db
+    });
 }
 
 pub struct ClientDB;
@@ -55,6 +73,18 @@ impl ClientDB {
         }
     }
 
+    pub fn sync_db() {
+        if let Err(e) = serde_json::to_writer_pretty(
+            File::create(DB_PATH).unwrap(),
+            &Self::_lock_read()
+                .iter()
+                .filter(|cli| cli.login.is_some())
+                .collect::<Vec<&CliData>>(),
+        ) {
+            error!("Failed to dump db: {}", e);
+        }
+    }
+
     pub fn add_client(addr: SocketAddr) {
         let cli_meta = CliData {
             addr: addr.clone(),
@@ -68,14 +98,27 @@ impl ClientDB {
         Self::_lock_write().push(cli_meta);
     }
 
-    pub fn get_all_client_jobs(addr: &SocketAddr) -> Vec<CliTask> {
-        Self::_lock_write()
-            .iter_mut()
+    pub fn get_all_client_jobs(addr: &SocketAddr) -> Option<Vec<CliTask>> {
+        if Self::_lock_read()
+            .iter()
             .find(|cli| cli.addr == *addr)
             .unwrap()
             .jobs
-            .drain(..)
-            .collect()
+            .len()
+            > 0
+        {
+            return Some(
+                Self::_lock_write()
+                    .iter_mut()
+                    .find(|cli| cli.addr == *addr)
+                    .unwrap()
+                    .jobs
+                    .drain(..)
+                    .collect(),
+            );
+        } else {
+            None
+        }
     }
 
     pub fn get_all_users(addr: &SocketAddr) -> Vec<String> {
@@ -151,6 +194,7 @@ impl ClientDB {
     }
 
     pub fn set_login(addr: &SocketAddr, login: String, password: String) -> RResult<()> {
+        Self::check_cmd_timeout(addr, true)?;
         if Self::is_logged_in(addr) {
             if Self::_lock_read()
                 .iter()

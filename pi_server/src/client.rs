@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 const CMD_BUF_SIZE: usize = 256;
 const SILENT_CONN_TIMEOUT: usize = 40;
-const HALT_MS: u64 = 10;
+const HALT_MS: u64 = 50;
 const SUCCESS: &str = "+";
 const FAIL: &str = "-";
 
@@ -105,10 +105,10 @@ impl Client {
                     self.send_response(response);
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    /*if silence_counter / 100 >= SILENT_CONN_TIMEOUT {
+                    if silence_counter / (1000 / HALT_MS as usize) >= SILENT_CONN_TIMEOUT {
                         self.send_response("TIMEOUT");
                         self.shutdown();
-                    }*/
+                    }
                     sleep(Duration::from_millis(HALT_MS));
                     silence_counter += 1;
                 }
@@ -122,15 +122,18 @@ impl Client {
     }
 
     fn apply_jobs(&mut self) {
-        ClientDB::get_all_client_jobs(&self.addr)
-            .into_iter()
-            .for_each(|job| match job {
-                CliTask::Exit => self.shutdown(),
-                CliTask::SendMsg(sender, msg) => {
-                    let full_msg = format!("MSGFROM {}: {}", sender, msg);
-                    self.send_response(full_msg)
-                }
-            });
+        match ClientDB::get_all_client_jobs(&self.addr) {
+            Some(jobs) => {
+                jobs.into_iter().for_each(|job| match job {
+                    CliTask::Exit => self.shutdown(),
+                    CliTask::SendMsg(sender, msg) => {
+                        let full_msg = format!("MSGFROM {}: {}", sender, msg);
+                        self.send_response(full_msg)
+                    }
+                });
+            }
+            None => (),
+        }
     }
 
     fn send_response<S: Into<String>>(&mut self, data: S) {

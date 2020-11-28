@@ -70,7 +70,7 @@ impl API {
     pub fn login(h: HandleInfo) -> HResult {
         let username = h.args.get("username").unwrap().to_string();
         let password = h.args.get("password").unwrap().to_string();
-        if username.len() > 20 {
+        if username.chars().count() > 20 {
             return Err(SError::NameIsTooLong);
         }
         ClientDB::set_login(h.addr, username, password).map(HandleResult::from)
