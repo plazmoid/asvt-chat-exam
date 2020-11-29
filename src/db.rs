@@ -9,7 +9,7 @@ use serde_json;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
-struct CliData {
+pub struct CliData {
     addr: SocketAddr,
     uid: Uuid,
     jobs: Vec<CliTask>,
@@ -33,23 +33,24 @@ lazy_static! {
             .unwrap();
         let mut db: Vec<CliData> = serde_json::from_reader(file).unwrap_or(vec![]);
         db.iter_mut().for_each(|cli| cli.online = false);
-        threaded_task_runner(|| ClientDB::sync_db(), Duration::from_millis(500));
         db
     });
+    pub static ref _T: () =
+        threaded_task_runner(|| ClientDB::sync_db(), Duration::from_millis(500));
 }
 
 pub struct ClientDB;
 
 impl ClientDB {
-    fn _lock_read() -> RwLockReadGuard<'static, CDB> {
+    pub fn _lock_read() -> RwLockReadGuard<'static, CDB> {
         DB.read().unwrap()
     }
 
-    fn _lock_write() -> RwLockWriteGuard<'static, CDB> {
+    pub fn _lock_write() -> RwLockWriteGuard<'static, CDB> {
         DB.write().unwrap()
     }
 
-    fn update_cmd_ts(addr: &SocketAddr) {
+    pub fn update_cmd_ts(addr: &SocketAddr) {
         Self::_lock_write()
             .iter_mut()
             .find(|cli| cli.addr == *addr)
@@ -57,7 +58,7 @@ impl ClientDB {
             .last_cmd_ts = SystemTime::now();
     }
 
-    fn check_cmd_timeout(addr: &SocketAddr, update: bool) -> RResult<()> {
+    pub fn check_cmd_timeout(addr: &SocketAddr, update: bool) -> RResult<()> {
         let last_cmd_ts: SystemTime = Self::_lock_read()
             .iter()
             .find(|cli| cli.addr == *addr)

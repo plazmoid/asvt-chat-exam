@@ -16,8 +16,8 @@ const FAIL: &str = "-";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum CliTask {
-    // from, msg
-    SendMsg(String, String),
+    // date, from, msg
+    SendMsg(String, String, String),
     Exit,
 }
 
@@ -126,8 +126,8 @@ impl Client {
             Some(jobs) => {
                 jobs.into_iter().for_each(|job| match job {
                     CliTask::Exit => self.shutdown(),
-                    CliTask::SendMsg(sender, msg) => {
-                        let full_msg = format!("MSGFROM {}: {}", sender, msg);
+                    CliTask::SendMsg(date, sender, msg) => {
+                        let full_msg = format!("MSGFROM [{} {}]: {}", date, sender, msg);
                         self.send_response(full_msg)
                     }
                 });

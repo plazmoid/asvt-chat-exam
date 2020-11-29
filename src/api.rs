@@ -1,6 +1,7 @@
 use crate::client::CliTask;
 use crate::db::ClientDB;
 use crate::error::SError;
+use chrono::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -51,7 +52,7 @@ lazy_static! {
             "LOGIN",
             (vec!["username", "password"], API::login as Handler),
         );
-        rules.insert("SENDTO", (vec!["username", "msg"], API::send_to as Handler));
+        rules.insert("SEND", (vec!["username", "msg"], API::send_to as Handler));
         rules.insert("SNDALL", (vec!["msg"], API::send_to_all as Handler));
         rules.insert("EXIT", (vec![], API::cli_exit as Handler));
         rules
@@ -64,7 +65,7 @@ impl API {
     fn _help() -> String {
         let mut cmds = RULES.keys().map(|k| *k).collect::<Vec<&str>>();
         cmds.sort();
-        format!("v. 0.3 \nAvailable commands: {}", cmds.join(", "))
+        format!("v. 0.3.2 \nAvailable commands: {}", cmds.join(", "))
     }
 
     pub fn login(h: HandleInfo) -> HResult {
@@ -97,10 +98,11 @@ impl API {
             Some(s) => s,
             None => h.addr.to_string(),
         };
-        let sender = sender + " [to all]";
+        let sender = sender + " (to all)";
         let message = h.args.get("msg").unwrap().to_string();
-        ClientDB::add_broadcast_task(h.addr, CliTask::SendMsg(sender, message))
-            .map(HandleResult::from)
+        let date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let task = CliTask::SendMsg(date, sender, message);
+        ClientDB::add_broadcast_task(h.addr, task).map(HandleResult::from)
     }
 
     pub fn send_to(h: HandleInfo) -> HResult {
@@ -112,12 +114,13 @@ impl API {
             Some(r) => r,
             None => return Err(SError::NoSuchUser),
         };
-        let message = h.args.get("msg").unwrap().to_string();
         let sender = match ClientDB::get_username(&h.addr) {
             Some(s) => s,
             None => h.addr.to_string(),
         };
-        let task = CliTask::SendMsg(sender, message);
+        let message = h.args.get("msg").unwrap().to_string();
+        let date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let task = CliTask::SendMsg(date, sender, message);
         ClientDB::add_task(&receiver, task, true).map(HandleResult::from)
     }
 

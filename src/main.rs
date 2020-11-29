@@ -1,3 +1,4 @@
+#![allow(unused_must_use)]
 use std::env;
 use std::fs::OpenOptions;
 use std::net::TcpListener;
@@ -14,6 +15,7 @@ mod error;
 mod protocol;
 
 use client::Client;
+use db::{ClientDB, _T};
 
 #[macro_use]
 extern crate lazy_static;
@@ -51,22 +53,16 @@ fn init_logger(show_stderr: bool) {
     CombinedLogger::init(loggers).unwrap();
 }
 
+fn init_statics() {
+    ClientDB::_lock_read();
+    *_T;
+}
+
 fn set_panic_hook() {
     panic::set_hook(Box::new(|info| error!("Critical: {}", info)));
 }
 
-fn main() {
-    let mut is_daemon = false;
-    if let Some(arg) = env::args().nth(1) {
-        if arg == "-d" {
-            if let Ok(pid) = daemonize() {
-                is_daemon = true;
-                debug!("Forked to background (pid {})", pid);
-            }
-        }
-    }
-    init_logger(!is_daemon);
-    set_panic_hook();
+fn listen() {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT)).unwrap();
     info!("Listening on port {}", PORT);
     for stream in listener.incoming() {
@@ -84,4 +80,20 @@ fn main() {
             }
         }
     }
+}
+
+fn main() {
+    let mut is_daemon = false;
+    if let Some(arg) = env::args().nth(1) {
+        if arg == "-d" {
+            if let Ok(pid) = daemonize() {
+                is_daemon = true;
+                debug!("Forked to background (pid {})", pid);
+            }
+        }
+    }
+    init_logger(!is_daemon);
+    set_panic_hook();
+    init_statics();
+    listen();
 }
