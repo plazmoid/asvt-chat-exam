@@ -2,6 +2,7 @@ use crate::client::CliTask;
 use crate::db::ClientDB;
 use crate::error::SError;
 use chrono::prelude::*;
+use regex::Regex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -57,6 +58,7 @@ lazy_static! {
         rules.insert("EXIT", (vec![], API::cli_exit as Handler));
         rules
     };
+    static ref LOGIN_RULE: Regex = Regex::new(r"^[\x20-\x39\x3B-\x7Eа-яёА-ЯЁ]{1,20}$").unwrap();
 }
 
 pub struct API;
@@ -65,14 +67,14 @@ impl API {
     fn _help() -> String {
         let mut cmds = RULES.keys().map(|k| *k).collect::<Vec<&str>>();
         cmds.sort();
-        format!("v. 0.3.2 \nAvailable commands: {}", cmds.join(", "))
+        format!("v. 0.3.3 \nAvailable commands: {}", cmds.join(", "))
     }
 
     pub fn login(h: HandleInfo) -> HResult {
         let username = h.args.get("username").unwrap().to_string();
         let password = h.args.get("password").unwrap().to_string();
-        if username.chars().count() > 20 {
-            return Err(SError::NameIsTooLong);
+        if !LOGIN_RULE.is_match(&username) {
+            return Err(SError::InvalidLogin);
         }
         ClientDB::set_login(h.addr, username, password).map(HandleResult::from)
     }

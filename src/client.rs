@@ -80,7 +80,7 @@ impl Client {
                         drop_trigger = true;
                     }
 
-                    let cmd = String::from_utf8_lossy(&data).into_owned().to_string();
+                    let cmd = String::from_utf8_lossy(&data).into_owned();
                     let cmd = cmd.trim_matches(char::from(0)).trim().to_string();
                     if cmd.len() == 0 {
                         continue;

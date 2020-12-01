@@ -11,8 +11,10 @@ pub enum SError {
     #[error("Login already exists")]
     LoginAlreadyExists,
 
-    #[error("Name is too long (> 20 chars)")]
-    NameIsTooLong,
+    #[error(
+        "Invalid login: only printable ascii/rus chars allowed; ':', '\\n', '\\t' are forbidden"
+    )]
+    InvalidLogin,
 
     #[error("Please log in")]
     NotLoggedIn,
