@@ -1,4 +1,4 @@
-use crate::{api::RResult, client::CliTask, error::SError, utils::threaded_task_runner};
+use crate::{api::RResult, client::CliTask, config::*, error::SError, utils::threaded_task_runner};
 use std::fs::{File, OpenOptions};
 use std::net::SocketAddr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -18,8 +18,6 @@ pub struct CliData {
     password: Option<String>,
     online: bool,
 }
-
-const DB_PATH: &str = "users.json";
 
 type CDB = Vec<CliData>;
 
@@ -64,7 +62,7 @@ impl ClientDB {
             .find(|cli| cli.addr == *addr)
             .unwrap()
             .last_cmd_ts;
-        if last_cmd_ts.elapsed().unwrap().as_secs() < 1 {
+        if last_cmd_ts.elapsed().unwrap().as_millis() < 500 {
             return Err(SError::DOS);
         } else {
             if update {
@@ -131,7 +129,7 @@ impl ClientDB {
                     user += " (you)"
                 }
                 if cli.online {
-                    user += " *"
+                    user = format!("{} {}", user, ONLINE);
                 }
                 user
             })
@@ -154,8 +152,7 @@ impl ClientDB {
             .map(|cli| cli.addr)
     }
 
-    pub fn add_task(addr: &SocketAddr, job: CliTask, has_timeout: bool) -> RResult<()> {
-        Self::check_cmd_timeout(addr, has_timeout)?;
+    pub fn add_task(addr: &SocketAddr, job: CliTask) -> RResult<()> {
         Self::_lock_write()
             .iter_mut()
             .find(|cli| cli.addr == *addr)
@@ -166,13 +163,12 @@ impl ClientDB {
     }
 
     pub fn add_broadcast_task(addr_from: &SocketAddr, job: CliTask) -> RResult<()> {
-        Self::check_cmd_timeout(addr_from, false)?;
         let addrs = Self::_lock_read()
             .iter()
             .map(|cli| cli.addr)
             .collect::<Vec<SocketAddr>>();
         for addr in addrs.into_iter() {
-            ClientDB::add_task(&addr, job.clone(), false)?;
+            ClientDB::add_task(&addr, job.clone())?;
         }
         Self::update_cmd_ts(addr_from);
         Ok(())
@@ -195,7 +191,7 @@ impl ClientDB {
     }
 
     pub fn set_login(addr: &SocketAddr, login: String, password: String) -> RResult<()> {
-        Self::check_cmd_timeout(addr, true)?;
+        //Self::check_cmd_timeout(addr, true)?;
         if Self::is_logged_in(addr) {
             if Self::_lock_read()
                 .iter()

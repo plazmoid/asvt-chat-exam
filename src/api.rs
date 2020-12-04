@@ -1,8 +1,7 @@
-use crate::client::CliTask;
-use crate::db::ClientDB;
-use crate::error::SError;
+use crate::{client::CliTask, config::ONLINE, db::ClientDB, error::SError};
 use chrono::prelude::*;
 use regex::Regex;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -67,7 +66,7 @@ impl API {
     fn _help() -> String {
         let mut cmds = RULES.keys().map(|k| *k).collect::<Vec<&str>>();
         cmds.sort();
-        format!("v. 0.3.3 \nAvailable commands: {}", cmds.join(", "))
+        format!("v. 0.3.4 \nAvailable commands: {}", cmds.join(", "))
     }
 
     pub fn login(h: HandleInfo) -> HResult {
@@ -84,11 +83,26 @@ impl API {
     }
 
     pub fn cli_exit(h: HandleInfo) -> HResult {
-        ClientDB::add_task(h.addr, CliTask::Exit, false).map(HandleResult::from)
+        ClientDB::add_task(h.addr, CliTask::Exit).map(HandleResult::from)
     }
 
     pub fn get_users(h: HandleInfo) -> HResult {
-        let users = ClientDB::get_all_users(&h.addr);
+        let mut users = ClientDB::get_all_users(&h.addr);
+        users.sort_by(|a, b| {
+            if a.ends_with(ONLINE) ^ b.ends_with(ONLINE) {
+                if a.ends_with(ONLINE) {
+                    Ordering::Less
+                } else {
+                    if b.ends_with(ONLINE) {
+                        Ordering::Greater
+                    } else {
+                        unreachable!()
+                    }
+                }
+            } else {
+                a.cmp(b)
+            }
+        });
         Ok(users.join("\n").into())
     }
 
@@ -123,7 +137,7 @@ impl API {
         let message = h.args.get("msg").unwrap().to_string();
         let date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let task = CliTask::SendMsg(date, sender, message);
-        ClientDB::add_task(&receiver, task, true).map(HandleResult::from)
+        ClientDB::add_task(&receiver, task).map(HandleResult::from)
     }
 
     pub fn ping(_: HandleInfo) -> HResult {
@@ -141,6 +155,7 @@ pub fn process_command(cmd: Command, addr: &SocketAddr) -> RResult<String> {
             Some(m) => m,
             None => return Err(SError::UnknownCommand),
         };
+    ClientDB::check_cmd_timeout(addr, true)?;
     let cmd_arg_names = cmd.args.keys().collect::<Vec<&&str>>();
     for argn in required_args.iter() {
         if !cmd_arg_names.contains(&argn) {

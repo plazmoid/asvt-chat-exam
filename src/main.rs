@@ -5,17 +5,18 @@ use std::net::TcpListener;
 use std::panic;
 use std::thread;
 
-mod utils;
-use utils::daemonize;
-
 mod api;
 mod client;
+mod config;
 mod db;
 mod error;
 mod protocol;
+mod utils;
 
 use client::Client;
+use config::*;
 use db::{ClientDB, _T};
+use utils::daemonize;
 
 #[macro_use]
 extern crate lazy_static;
@@ -24,9 +25,6 @@ extern crate lazy_static;
 extern crate log;
 extern crate simplelog;
 use simplelog::*;
-
-const PORT: &str = "81";
-const LOGFILE: &str = "pi_server.log";
 
 fn init_logger(show_stderr: bool) {
     let log_cfg = ConfigBuilder::new()

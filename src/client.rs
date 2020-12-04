@@ -4,15 +4,11 @@ use std::panic;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::{api::process_command, db::ClientDB, error::SError, protocol::parse_request};
+use crate::{
+    api::process_command, config::*, db::ClientDB, error::SError, protocol::parse_request,
+};
 
 use serde::{Deserialize, Serialize};
-
-const CMD_BUF_SIZE: usize = 256;
-const SILENT_CONN_TIMEOUT: usize = 40;
-const HALT_MS: u64 = 50;
-const SUCCESS: &str = "+";
-const FAIL: &str = "-";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum CliTask {
@@ -31,6 +27,7 @@ fn try_append_username(addr: &SocketAddr) -> String {
 pub struct Client {
     conn: TcpStream,
     addr: SocketAddr,
+    is_connected: bool,
 }
 
 impl Client {
@@ -38,6 +35,7 @@ impl Client {
         let instance = Client {
             conn: stream,
             addr: addr.clone(),
+            is_connected: true,
         };
         ClientDB::add_client(addr);
         panic::catch_unwind(|| instance._handle_req()).ok();
@@ -53,7 +51,7 @@ impl Client {
         // self.conn
         //     .set_read_timeout(Some(Duration::from_secs(SILENT_CONN_TIMEOUT)))
         //     .expect("Can't set timeout");
-        loop {
+        while self.is_connected {
             data.iter_mut().for_each(|e| *e = 0u8);
             let read_result = Read::by_ref(&mut self.conn)
                 .take(CMD_BUF_SIZE as u64)
@@ -140,8 +138,9 @@ impl Client {
         self.conn.write((data.into() + "\n").as_bytes()).ok();
     }
 
-    fn shutdown(&self) {
+    fn shutdown(&mut self) {
         self.conn.shutdown(Shutdown::Both).ok();
+        self.is_connected = false;
     }
 }
 

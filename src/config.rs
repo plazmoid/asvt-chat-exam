@@ -1,0 +1,9 @@
+pub const DB_PATH: &str = "users.json";
+pub const LOGFILE: &str = "pi_server.log";
+pub const PORT: &str = "81";
+pub const CMD_BUF_SIZE: usize = 256;
+pub const SILENT_CONN_TIMEOUT: usize = 40;
+pub const HALT_MS: u64 = 50;
+pub const SUCCESS: &str = "+";
+pub const FAIL: &str = "-";
+pub const ONLINE: &str = "*";
