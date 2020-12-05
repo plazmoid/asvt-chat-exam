@@ -125,7 +125,13 @@ impl Client {
                 jobs.into_iter().for_each(|job| match job {
                     CliTask::Exit => self.shutdown(),
                     CliTask::SendMsg(date, sender, msg) => {
-                        let full_msg = format!("MSGFROM [{} {}]: {}", date, sender, msg);
+                        let full_msg = format!(
+                            "MSGFROM [{} {}] ({}): {}",
+                            date,
+                            sender,
+                            msg.chars().count(),
+                            msg
+                        );
                         self.send_response(full_msg)
                     }
                 });
