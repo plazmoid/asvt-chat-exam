@@ -104,7 +104,7 @@ impl Client {
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if silence_counter / (1000 / HALT_MS as usize) >= SILENT_CONN_TIMEOUT {
-                        self.send_response("TIMEOUT");
+                        self.send_response(TIMEOUT_MSG);
                         self.shutdown();
                     }
                     sleep(Duration::from_millis(HALT_MS));
@@ -123,7 +123,10 @@ impl Client {
         match ClientDB::get_all_client_jobs(&self.addr) {
             Some(jobs) => {
                 jobs.into_iter().for_each(|job| match job {
-                    CliTask::Exit => self.shutdown(),
+                    CliTask::Exit => {
+                        self.send_response(SHUTDOWN_MSG);
+                        self.shutdown();
+                    }
                     CliTask::SendMsg(date, sender, msg) => {
                         let full_msg = format!(
                             "MSGFROM [{} {}] ({}): {}",
@@ -152,8 +155,9 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        ClientDB::set_online_status(&self.addr, false);
-        if !ClientDB::is_logged_in(&self.addr) {
+        if ClientDB::is_logged_in(&self.addr) {
+            ClientDB::set_online_status(&self.addr, false);
+        } else {
             ClientDB::remove_cli(&self.addr);
         }
     }

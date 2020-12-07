@@ -7,3 +7,6 @@ pub const HALT_MS: u64 = 50;
 pub const SUCCESS: &str = "+";
 pub const FAIL: &str = "-";
 pub const ONLINE: &str = "*";
+pub const ADMIN: &str = "ортём";
+pub const SHUTDOWN_MSG: &str = "SHUTDOWN";
+pub const TIMEOUT_MSG: &str = "TIMEOUT";

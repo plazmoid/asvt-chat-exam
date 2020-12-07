@@ -1,9 +1,11 @@
-use crate::{client::CliTask, config::ONLINE, db::ClientDB, error::SError};
+use crate::{client::CliTask, config::*, db::ClientDB, error::SError};
 use chrono::prelude::*;
 use regex::Regex;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::thread;
+use std::time::Duration;
 
 pub type RResult<T> = std::result::Result<T, SError>;
 pub type HResult = RResult<HandleResult>;
@@ -55,6 +57,8 @@ lazy_static! {
         rules.insert("SEND", (vec!["username", "msg"], API::send_to as Handler));
         rules.insert("SNDALL", (vec!["msg"], API::send_to_all as Handler));
         rules.insert("EXIT", (vec![], API::cli_exit as Handler));
+        rules.insert("_DELUSER", (vec!["username"], API::del_user as Handler));
+        rules.insert("_FLUSH", (vec!["username"], API::flush_jobs as Handler));
         rules
     };
     static ref LOGIN_RULE: Regex = Regex::new(r"^[\x20-\x39\x3B-\x7Eа-яёА-ЯЁ]{1,20}$").unwrap();
@@ -64,9 +68,48 @@ pub struct API;
 
 impl API {
     fn _help() -> String {
-        let mut cmds = RULES.keys().map(|k| *k).collect::<Vec<&str>>();
+        let mut cmds = RULES
+            .keys()
+            .filter_map(|k| if k.starts_with('_') { None } else { Some(*k) })
+            .collect::<Vec<&str>>();
         cmds.sort();
-        format!("v. 0.3.4 \nAvailable commands: {}", cmds.join(", "))
+        format!("v. 0.3.6 \nAvailable commands: {}", cmds.join(", "))
+    }
+
+    fn check_admin(user: &SocketAddr) -> RResult<()> {
+        let caller = ClientDB::get_username(user).unwrap();
+        if caller == ADMIN {
+            Ok(())
+        } else {
+            Err(SError::UnknownCommand)
+        }
+    }
+
+    pub fn flush_jobs(h: HandleInfo) -> HResult {
+        Self::check_admin(&h.addr)?;
+        let user = h.args.get("username").unwrap().to_string();
+        let user_addr = match ClientDB::get_client_by_username(&user) {
+            Some(r) => r,
+            None => return Err(SError::NoSuchUser),
+        };
+        let jobs_cnt = match ClientDB::get_all_client_jobs(&user_addr) {
+            Some(j) => j.len(),
+            None => 0,
+        };
+        Ok(jobs_cnt.to_string().into())
+    }
+
+    pub fn del_user(h: HandleInfo) -> HResult {
+        Self::check_admin(&h.addr)?;
+        let user = h.args.get("username").unwrap().to_string();
+        let user_addr = match ClientDB::get_client_by_username(&user) {
+            Some(r) => r,
+            None => user.parse().map_err(|_| SError::NoSuchUser)?,
+        };
+        ClientDB::add_task(&user_addr, CliTask::Exit);
+        thread::sleep(Duration::from_secs(1));
+        ClientDB::remove_cli(&user_addr);
+        Ok(().into())
     }
 
     pub fn login(h: HandleInfo) -> HResult {
@@ -126,7 +169,7 @@ impl API {
             return Err(SError::NotLoggedIn);
         }
         let receiver = h.args.get("username").unwrap().to_string();
-        let receiver = match ClientDB::get_client_by_username(receiver) {
+        let receiver = match ClientDB::get_client_by_username(&receiver) {
             Some(r) => r,
             None => return Err(SError::NoSuchUser),
         };

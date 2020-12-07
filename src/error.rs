@@ -12,7 +12,7 @@ pub enum SError {
     LoginAlreadyExists,
 
     #[error(
-        "Invalid login: only printable ascii/rus chars allowed; ':', '\\n', '\\t' are forbidden"
+        "Invalid login: only printable ascii/rus chars allowed, ':' is forbidden, 20 chars at max"
     )]
     InvalidLogin,
 

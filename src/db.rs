@@ -19,6 +19,20 @@ pub struct CliData {
     online: bool,
 }
 
+impl Default for CliData {
+    fn default() -> CliData {
+        CliData {
+            addr: "127.0.0.1:31337".parse().unwrap(),
+            uid: Uuid::new_v4(),
+            jobs: vec![],
+            login: None,
+            last_cmd_ts: SystemTime::now(),
+            password: None,
+            online: false,
+        }
+    }
+}
+
 type CDB = Vec<CliData>;
 
 lazy_static! {
@@ -34,7 +48,7 @@ lazy_static! {
         db
     });
     pub static ref _T: () =
-        threaded_task_runner(|| ClientDB::sync_db(), Duration::from_millis(500));
+        threaded_task_runner(|| ClientDB::sync_db(), Duration::from_millis(1200));
 }
 
 pub struct ClientDB;
@@ -85,15 +99,9 @@ impl ClientDB {
     }
 
     pub fn add_client(addr: SocketAddr) {
-        let cli_meta = CliData {
-            addr: addr.clone(),
-            uid: Uuid::new_v4(),
-            jobs: vec![],
-            login: None,
-            last_cmd_ts: SystemTime::now(),
-            password: None,
-            online: true,
-        };
+        let mut cli_meta = CliData::default();
+        cli_meta.addr = addr.clone();
+        cli_meta.online = true;
         Self::_lock_write().push(cli_meta);
     }
 
@@ -101,7 +109,7 @@ impl ClientDB {
         if Self::_lock_read()
             .iter()
             .find(|cli| cli.addr == *addr)
-            .unwrap()
+            .unwrap_or(&CliData::default())
             .jobs
             .len()
             > 0
@@ -145,10 +153,10 @@ impl ClientDB {
             .clone()
     }
 
-    pub fn get_client_by_username(username: String) -> Option<SocketAddr> {
+    pub fn get_client_by_username(username: &String) -> Option<SocketAddr> {
         Self::_lock_read()
             .iter()
-            .find(|cli| cli.login.is_some() && cli.login.as_ref().unwrap() == &username)
+            .find(|cli| cli.login.is_some() && cli.login.as_ref().unwrap() == username)
             .map(|cli| cli.addr)
     }
 
@@ -191,7 +199,6 @@ impl ClientDB {
     }
 
     pub fn set_login(addr: &SocketAddr, login: String, password: String) -> RResult<()> {
-        //Self::check_cmd_timeout(addr, true)?;
         if Self::is_logged_in(addr) {
             if Self::_lock_read()
                 .iter()
@@ -243,7 +250,7 @@ impl ClientDB {
         Self::_lock_read()
             .iter()
             .find(|c| c.addr == *addr)
-            .unwrap()
+            .unwrap_or(&CliData::default())
             .login
             .is_some()
     }
