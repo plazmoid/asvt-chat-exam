@@ -62,32 +62,37 @@ impl ClientDB {
         DB.write().unwrap()
     }
 
-    pub fn update_cmd_ts(addr: &SocketAddr) {
+    pub fn get_uid(addr: &SocketAddr) -> Option<Uuid> {
+        Self::_lock_read()
+            .iter()
+            .find(|cli| cli.addr == *addr && cli.online)
+            .map(|c| c.uid)
+    }
+
+    pub fn update_cmd_ts(uid: Uuid) {
         Self::_lock_write()
             .iter_mut()
-            .find(|cli| cli.addr == *addr)
+            .find(|cli| cli.uid == uid)
             .unwrap()
             .last_cmd_ts = SystemTime::now();
     }
 
-    pub fn check_cmd_timeout(addr: &SocketAddr, update: bool) -> RResult<()> {
+    pub fn check_cmd_timeout(uid: Uuid) -> RResult<()> {
         let last_cmd_ts: SystemTime = Self::_lock_read()
             .iter()
-            .find(|cli| cli.addr == *addr)
+            .find(|cli| cli.uid == uid)
             .unwrap()
             .last_cmd_ts;
         if last_cmd_ts.elapsed().unwrap().as_millis() < 500 {
             return Err(SError::DOS);
         } else {
-            if update {
-                Self::update_cmd_ts(addr);
-            }
+            Self::update_cmd_ts(uid);
             return Ok(());
         }
     }
 
     pub fn sync_db() {
-        if let Err(e) = serde_json::to_writer_pretty(
+        if let Err(e) = serde_json::to_writer(
             File::create(DB_PATH).unwrap(),
             &Self::_lock_read()
                 .iter()
@@ -98,17 +103,19 @@ impl ClientDB {
         }
     }
 
-    pub fn add_client(addr: SocketAddr) {
+    pub fn add_client(addr: SocketAddr) -> Uuid {
         let mut cli_meta = CliData::default();
         cli_meta.addr = addr.clone();
         cli_meta.online = true;
+        let cli_uid = cli_meta.uid;
         Self::_lock_write().push(cli_meta);
+        cli_uid
     }
 
-    pub fn get_all_client_jobs(addr: &SocketAddr) -> Option<Vec<CliTask>> {
+    pub fn get_all_client_jobs(uid: Uuid) -> Option<Vec<CliTask>> {
         if Self::_lock_read()
             .iter()
-            .find(|cli| cli.addr == *addr)
+            .find(|cli| cli.uid == uid)
             .unwrap_or(&CliData::default())
             .jobs
             .len()
@@ -117,7 +124,7 @@ impl ClientDB {
             return Some(
                 Self::_lock_write()
                     .iter_mut()
-                    .find(|cli| cli.addr == *addr)
+                    .find(|cli| cli.uid == uid)
                     .unwrap()
                     .jobs
                     .drain(..)
@@ -128,12 +135,12 @@ impl ClientDB {
         }
     }
 
-    pub fn get_all_users(addr: &SocketAddr) -> Vec<String> {
+    pub fn get_all_users(uid: Uuid) -> Vec<String> {
         Self::_lock_read()
             .iter()
             .map(|cli| {
                 let mut user = cli.login.clone().unwrap_or(cli.addr.to_string());
-                if *addr == cli.addr {
+                if cli.uid == uid {
                     user += " (you)"
                 }
                 if cli.online {
@@ -144,83 +151,74 @@ impl ClientDB {
             .collect()
     }
 
-    pub fn get_username(addr: &SocketAddr) -> Option<String> {
+    pub fn get_username(uid: Uuid) -> Option<String> {
         Self::_lock_read()
             .iter()
-            .find(|c| c.addr == *addr)
-            .expect(&format!("can't find {}", addr))
+            .find(|c| c.uid == uid)
+            .expect(&format!("can't find {}", uid))
             .login
             .clone()
     }
 
-    pub fn get_client_by_username(username: &String) -> Option<SocketAddr> {
+    pub fn get_client_by_username(username: &String) -> Option<Uuid> {
         Self::_lock_read()
             .iter()
             .find(|cli| cli.login.is_some() && cli.login.as_ref().unwrap() == username)
-            .map(|cli| cli.addr)
+            .map(|cli| cli.uid)
     }
 
-    pub fn add_task(addr: &SocketAddr, job: CliTask) -> RResult<()> {
+    pub fn add_task(uid: Uuid, task: CliTask) -> RResult<()> {
         Self::_lock_write()
             .iter_mut()
-            .find(|cli| cli.addr == *addr)
+            .find(|cli| cli.uid == uid)
             .unwrap()
             .jobs
-            .push(job);
+            .push(task);
         Ok(())
     }
 
-    pub fn add_broadcast_task(addr_from: &SocketAddr, job: CliTask) -> RResult<()> {
-        let addrs = Self::_lock_read()
+    pub fn add_broadcast_task(uid: Uuid, task: CliTask) -> RResult<()> {
+        let clients = Self::_lock_read()
             .iter()
-            .map(|cli| cli.addr)
-            .collect::<Vec<SocketAddr>>();
-        for addr in addrs.into_iter() {
-            ClientDB::add_task(&addr, job.clone())?;
+            .map(|cli| cli.uid)
+            .collect::<Vec<Uuid>>();
+        for cli_uid in clients.into_iter() {
+            ClientDB::add_task(cli_uid, task.clone())?;
         }
-        Self::update_cmd_ts(addr_from);
+        Self::update_cmd_ts(uid);
         Ok(())
     }
 
-    pub fn remove_cli(addr: &SocketAddr) {
-        Self::_lock_write().retain(|cli| cli.addr != *addr);
+    pub fn remove_cli(uid: Uuid) {
+        Self::_lock_write().retain(|cli| cli.uid != uid);
     }
 
-    pub fn remove_cli_by_uid(uid: &Uuid) {
-        Self::_lock_write().retain(|cli| cli.uid != *uid);
-    }
-
-    pub fn set_online_status(addr: &SocketAddr, online: bool) {
+    pub fn set_online_status(uid: Uuid, online: bool) {
         Self::_lock_write()
             .iter_mut()
-            .find(|cli| cli.addr == *addr)
+            .find(|cli| cli.uid == uid)
             .unwrap()
             .online = online;
     }
 
-    pub fn set_login(addr: &SocketAddr, login: String, password: String) -> RResult<()> {
-        if Self::is_logged_in(addr) {
+    pub fn set_login(uid: Uuid, addr: &SocketAddr, login: String, password: String) -> RResult<()> {
+        if Self::is_logged_in(uid) {
             if Self::_lock_read()
                 .iter()
-                .any(|cli| cli.login.as_ref() == Some(&login) && cli.addr != *addr)
+                .any(|cli| cli.login.as_ref() == Some(&login) && cli.uid != uid)
             {
                 return Err(SError::LoginAlreadyExists);
             }
-            if let Some(client) = Self::_lock_write().iter_mut().find(|cli| cli.addr == *addr) {
+            if let Some(client) = Self::_lock_write().iter_mut().find(|cli| cli.uid == uid) {
                 client.login = Some(login);
                 client.password = Some(password);
                 client.online = true;
             }
             Ok(())
         } else {
-            let mut del_old: Option<Uuid> = None;
-            let del_uid = Self::_lock_read()
+            let mut perform_login = false;
+            if let Some(cli) = Self::_lock_read()
                 .iter()
-                .find(|cli| cli.addr == *addr)
-                .unwrap()
-                .uid;
-            if let Some(cli) = Self::_lock_write()
-                .iter_mut()
                 .find(|cli| cli.login.as_ref() == Some(&login))
             {
                 if cli.password.as_ref() != Some(&password) {
@@ -229,15 +227,21 @@ impl ClientDB {
                 if cli.online {
                     return Err(SError::AlreadyLoggedIn);
                 }
-                del_old = Some(del_uid);
-                cli.addr = *addr;
-                cli.online = true;
+                perform_login = true;
             }
-            if del_old.is_some() {
-                Self::remove_cli_by_uid(&del_old.unwrap());
+            if perform_login {
+                Self::remove_cli(uid);
+                if let Some(cli) = Self::_lock_write()
+                    .iter_mut()
+                    .find(|cli| cli.login.as_ref() == Some(&login))
+                {
+                    cli.addr = *addr;
+                    cli.online = true;
+                    cli.uid = uid;
+                }
                 return Ok(());
             }
-            if let Some(client) = Self::_lock_write().iter_mut().find(|cli| cli.addr == *addr) {
+            if let Some(client) = Self::_lock_write().iter_mut().find(|cli| cli.uid == uid) {
                 client.login = Some(login);
                 client.password = Some(password);
                 client.online = true;
@@ -246,10 +250,10 @@ impl ClientDB {
         }
     }
 
-    pub fn is_logged_in(addr: &SocketAddr) -> bool {
+    pub fn is_logged_in(uid: Uuid) -> bool {
         Self::_lock_read()
             .iter()
-            .find(|c| c.addr == *addr)
+            .find(|c| c.uid == uid)
             .unwrap_or(&CliData::default())
             .login
             .is_some()

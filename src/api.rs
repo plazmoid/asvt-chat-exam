@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
+use uuid::Uuid;
 
 pub type RResult<T> = std::result::Result<T, SError>;
 pub type HResult = RResult<HandleResult>;
@@ -41,6 +42,7 @@ impl From<()> for HandleResult {
 pub struct HandleInfo<'cmd> {
     pub args: Args<'cmd>,
     pub addr: &'cmd SocketAddr,
+    pub uid: Uuid,
 }
 
 lazy_static! {
@@ -73,11 +75,18 @@ impl API {
             .filter_map(|k| if k.starts_with('_') { None } else { Some(*k) })
             .collect::<Vec<&str>>();
         cmds.sort();
-        format!("v. 0.3.6 \nAvailable commands: {}", cmds.join(", "))
+        format!(
+            "v. {} \nAvailable commands: {}",
+            env!("CARGO_PKG_VERSION"),
+            cmds.join(", ")
+        )
     }
 
-    fn check_admin(user: &SocketAddr) -> RResult<()> {
-        let caller = ClientDB::get_username(user).unwrap();
+    fn check_admin(uid: Uuid) -> RResult<()> {
+        let caller = match ClientDB::get_username(uid) {
+            Some(c) => c,
+            None => return Err(SError::NoSuchUser),
+        };
         if caller == ADMIN {
             Ok(())
         } else {
@@ -85,14 +94,22 @@ impl API {
         }
     }
 
+    fn check_login(uid: Uuid) -> RResult<()> {
+        if !ClientDB::is_logged_in(uid) {
+            Err(SError::NotLoggedIn)
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn flush_jobs(h: HandleInfo) -> HResult {
-        Self::check_admin(&h.addr)?;
+        Self::check_login(h.uid).and(Self::check_admin(h.uid))?;
         let user = h.args.get("username").unwrap().to_string();
-        let user_addr = match ClientDB::get_client_by_username(&user) {
+        let uid = match ClientDB::get_client_by_username(&user) {
             Some(r) => r,
             None => return Err(SError::NoSuchUser),
         };
-        let jobs_cnt = match ClientDB::get_all_client_jobs(&user_addr) {
+        let jobs_cnt = match ClientDB::get_all_client_jobs(uid) {
             Some(j) => j.len(),
             None => 0,
         };
@@ -100,15 +117,18 @@ impl API {
     }
 
     pub fn del_user(h: HandleInfo) -> HResult {
-        Self::check_admin(&h.addr)?;
+        Self::check_login(h.uid).and(Self::check_admin(h.uid))?;
         let user = h.args.get("username").unwrap().to_string();
-        let user_addr = match ClientDB::get_client_by_username(&user) {
+        let uid = match ClientDB::get_client_by_username(&user) {
             Some(r) => r,
-            None => user.parse().map_err(|_| SError::NoSuchUser)?,
+            None => match ClientDB::get_uid(&user.parse().map_err(|_| SError::NoSuchUser)?) {
+                Some(u) => u,
+                None => return Err(SError::NoSuchUser),
+            },
         };
-        ClientDB::add_task(&user_addr, CliTask::Exit);
+        ClientDB::add_task(uid, CliTask::Exit);
         thread::sleep(Duration::from_secs(1));
-        ClientDB::remove_cli(&user_addr);
+        ClientDB::remove_cli(uid);
         Ok(().into())
     }
 
@@ -118,7 +138,7 @@ impl API {
         if !LOGIN_RULE.is_match(&username) {
             return Err(SError::InvalidLogin);
         }
-        ClientDB::set_login(h.addr, username, password).map(HandleResult::from)
+        ClientDB::set_login(h.uid, h.addr, username, password).map(HandleResult::from)
     }
 
     pub fn get_help(_: HandleInfo) -> HResult {
@@ -126,11 +146,11 @@ impl API {
     }
 
     pub fn cli_exit(h: HandleInfo) -> HResult {
-        ClientDB::add_task(h.addr, CliTask::Exit).map(HandleResult::from)
+        ClientDB::add_task(h.uid, CliTask::Exit).map(HandleResult::from)
     }
 
     pub fn get_users(h: HandleInfo) -> HResult {
-        let mut users = ClientDB::get_all_users(&h.addr);
+        let mut users = ClientDB::get_all_users(h.uid);
         users.sort_by(|a, b| {
             if a.ends_with(ONLINE) ^ b.ends_with(ONLINE) {
                 if a.ends_with(ONLINE) {
@@ -150,10 +170,8 @@ impl API {
     }
 
     pub fn send_to_all(h: HandleInfo) -> HResult {
-        if !ClientDB::is_logged_in(&h.addr) {
-            return Err(SError::NotLoggedIn);
-        }
-        let sender = match ClientDB::get_username(&h.addr) {
+        Self::check_login(h.uid)?;
+        let sender = match ClientDB::get_username(h.uid) {
             Some(s) => s,
             None => h.addr.to_string(),
         };
@@ -161,26 +179,24 @@ impl API {
         let message = h.args.get("msg").unwrap().to_string();
         let date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let task = CliTask::SendMsg(date, sender, message);
-        ClientDB::add_broadcast_task(h.addr, task).map(HandleResult::from)
+        ClientDB::add_broadcast_task(h.uid, task).map(HandleResult::from)
     }
 
     pub fn send_to(h: HandleInfo) -> HResult {
-        if !ClientDB::is_logged_in(&h.addr) {
-            return Err(SError::NotLoggedIn);
-        }
+        Self::check_login(h.uid)?;
         let receiver = h.args.get("username").unwrap().to_string();
         let receiver = match ClientDB::get_client_by_username(&receiver) {
             Some(r) => r,
             None => return Err(SError::NoSuchUser),
         };
-        let sender = match ClientDB::get_username(&h.addr) {
+        let sender = match ClientDB::get_username(h.uid) {
             Some(s) => s,
             None => h.addr.to_string(),
         };
         let message = h.args.get("msg").unwrap().to_string();
         let date = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let task = CliTask::SendMsg(date, sender, message);
-        ClientDB::add_task(&receiver, task).map(HandleResult::from)
+        ClientDB::add_task(receiver, task).map(HandleResult::from)
     }
 
     pub fn ping(_: HandleInfo) -> HResult {
@@ -192,13 +208,13 @@ impl API {
     }
 }
 
-pub fn process_command(cmd: Command, addr: &SocketAddr) -> RResult<String> {
+pub fn process_command(cmd: Command, uid: Uuid, addr: &SocketAddr) -> RResult<String> {
     let (required_args, handler): &(Vec<&str>, Handler) =
         match RULES.get(cmd.cmd.to_uppercase().trim()) {
             Some(m) => m,
             None => return Err(SError::UnknownCommand),
         };
-    ClientDB::check_cmd_timeout(addr, true)?;
+    ClientDB::check_cmd_timeout(uid)?;
     let cmd_arg_names = cmd.args.keys().collect::<Vec<&&str>>();
     for argn in required_args.iter() {
         if !cmd_arg_names.contains(&argn) {
@@ -207,7 +223,8 @@ pub fn process_command(cmd: Command, addr: &SocketAddr) -> RResult<String> {
     }
     let h_info = HandleInfo {
         args: cmd.args,
-        addr: addr,
+        addr,
+        uid,
     };
     handler(h_info).map(|r| r.0)
 }

@@ -3,6 +3,7 @@ use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::panic;
 use std::thread::sleep;
 use std::time::Duration;
+use uuid::Uuid;
 
 use crate::{
     api::process_command, config::*, db::ClientDB, error::SError, protocol::parse_request,
@@ -17,8 +18,8 @@ pub enum CliTask {
     Exit,
 }
 
-fn try_append_username(addr: &SocketAddr) -> String {
-    match ClientDB::get_username(&addr) {
+fn try_append_username(uid: Uuid, addr: &SocketAddr) -> String {
+    match ClientDB::get_username(uid) {
         Some(n) => format!("{} ({})", addr, n),
         None => format!("{}", addr),
     }
@@ -27,17 +28,17 @@ fn try_append_username(addr: &SocketAddr) -> String {
 pub struct Client {
     conn: TcpStream,
     addr: SocketAddr,
-    is_connected: bool,
+    uid: Uuid,
 }
 
 impl Client {
     pub fn handle(stream: TcpStream, addr: SocketAddr) {
+        let client_uid = ClientDB::add_client(addr);
         let instance = Client {
             conn: stream,
             addr: addr.clone(),
-            is_connected: true,
+            uid: client_uid,
         };
-        ClientDB::add_client(addr);
         panic::catch_unwind(|| instance._handle_req()).ok();
     }
 
@@ -51,7 +52,7 @@ impl Client {
         // self.conn
         //     .set_read_timeout(Some(Duration::from_secs(SILENT_CONN_TIMEOUT)))
         //     .expect("Can't set timeout");
-        while self.is_connected {
+        loop {
             data.iter_mut().for_each(|e| *e = 0u8);
             let read_result = Read::by_ref(&mut self.conn)
                 .take(CMD_BUF_SIZE as u64)
@@ -62,7 +63,7 @@ impl Client {
                     if size == 0 {
                         info!(
                             "Connection with {} is closed",
-                            try_append_username(&self.addr)
+                            try_append_username(self.uid, &self.addr)
                         );
                         break;
                     }
@@ -83,11 +84,14 @@ impl Client {
                     if cmd.len() == 0 {
                         continue;
                     }
-                    let _log_msg =
-                        format!("Cmd from {}: {}", try_append_username(&self.addr), &cmd);
+                    let _log_msg = format!(
+                        "Cmd from {}: {}",
+                        try_append_username(self.uid, &self.addr),
+                        &cmd
+                    );
                     let response = parse_request(&cmd)
                         .map_err(|e| SError::SyntaxError(e.to_string()))
-                        .and_then(|(_, c)| process_command(c, &self.addr));
+                        .and_then(|(_, c)| process_command(c, self.uid, &self.addr));
                     let response = match response {
                         Ok(resp) => {
                             if cmd.to_lowercase() != "ping" {
@@ -112,7 +116,7 @@ impl Client {
                 }
                 Err(e) => {
                     error!("Error in {} occured: {}", self.addr, e.to_string());
-                    self.shutdown();
+                    break;
                 }
             }
             self.apply_jobs();
@@ -120,7 +124,7 @@ impl Client {
     }
 
     fn apply_jobs(&mut self) {
-        match ClientDB::get_all_client_jobs(&self.addr) {
+        match ClientDB::get_all_client_jobs(self.uid) {
             Some(jobs) => {
                 jobs.into_iter().for_each(|job| match job {
                     CliTask::Exit => {
@@ -149,16 +153,15 @@ impl Client {
 
     fn shutdown(&mut self) {
         self.conn.shutdown(Shutdown::Both).ok();
-        self.is_connected = false;
     }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        if ClientDB::is_logged_in(&self.addr) {
-            ClientDB::set_online_status(&self.addr, false);
+        if ClientDB::is_logged_in(self.uid) {
+            ClientDB::set_online_status(self.uid, false);
         } else {
-            ClientDB::remove_cli(&self.addr);
+            ClientDB::remove_cli(self.uid);
         }
     }
 }

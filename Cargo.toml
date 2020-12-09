@@ -1,6 +1,6 @@
 [package]
 name = "pi_server"
-version = "0.1.0"
+version = "0.3.7"
 authors = ["plazmoid <kronos44@mail.ru>"]
 edition = "2018"
 
@@ -10,7 +10,7 @@ edition = "2018"
 nix = "*"
 log = "*"
 simplelog = "*"
-nom = { version = "*", features = ["alloc"] }
+nom = { version = "6.0.1", features = ["alloc"] }
 lazy_static = "*"
 thiserror = "*"
 serde = { version = "*", features = ["derive"] }
