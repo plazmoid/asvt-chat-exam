@@ -3,6 +3,7 @@ use std::env;
 use std::fs::OpenOptions;
 use std::net::TcpListener;
 use std::panic;
+use std::process;
 use std::thread;
 
 mod api;
@@ -15,7 +16,7 @@ mod utils;
 
 use client::Client;
 use config::*;
-use db::{ClientDB, _T};
+use db::ClientDB;
 use utils::daemonize;
 
 #[macro_use]
@@ -24,6 +25,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate simplelog;
+use signal_hook::{iterator::Signals, SIGHUP, SIGINT, SIGTERM};
 use simplelog::*;
 
 fn init_logger(show_stderr: bool) {
@@ -53,7 +55,30 @@ fn init_logger(show_stderr: bool) {
 
 fn init_statics() {
     ClientDB::_lock_read();
-    *_T;
+}
+
+fn init_sighandlers() {
+    let signals = Signals::new(&[SIGINT, SIGTERM, SIGHUP]).unwrap();
+    thread::spawn(move || {
+        for sig in signals.forever() {
+            match sig {
+                SIGINT | SIGTERM => {
+                    info!("Gracefully stopping...");
+                    info!("Syncing db");
+                    ClientDB::sync_db();
+                    info!("Done");
+                    process::exit(0);
+                }
+                SIGHUP => {
+                    info!("SIGHUP received");
+                    info!("Syncing db");
+                    ClientDB::sync_db();
+                    info!("Done");
+                }
+                _ => unreachable!(),
+            }
+        }
+    });
 }
 
 fn set_panic_hook() {
@@ -93,5 +118,6 @@ fn main() {
     init_logger(!is_daemon);
     set_panic_hook();
     init_statics();
+    init_sighandlers();
     listen();
 }

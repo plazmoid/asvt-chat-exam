@@ -1,8 +1,8 @@
-use crate::{api::RResult, client::CliTask, config::*, error::SError, utils::threaded_task_runner};
+use crate::{api::RResult, client::CliTask, config::*, error::SError};
 use std::fs::{File, OpenOptions};
 use std::net::SocketAddr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -47,8 +47,6 @@ lazy_static! {
         db.iter_mut().for_each(|cli| cli.online = false);
         db
     });
-    pub static ref _T: () =
-        threaded_task_runner(|| ClientDB::sync_db(), Duration::from_millis(1200));
 }
 
 pub struct ClientDB;

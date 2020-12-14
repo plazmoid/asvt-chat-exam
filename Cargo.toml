@@ -1,6 +1,6 @@
 [package]
 name = "pi_server"
-version = "0.3.7"
+version = "0.3.8"
 authors = ["plazmoid <kronos44@mail.ru>"]
 edition = "2018"
 
@@ -18,3 +18,4 @@ serde_json = "*"
 uuid = { version = "*", features = ["v4", "serde"] }
 chrono = { version = "*", features = ["unstable-locales"] }
 regex = "*"
+signal-hook = "*"

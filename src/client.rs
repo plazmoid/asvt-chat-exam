@@ -124,26 +124,23 @@ impl Client {
     }
 
     fn apply_jobs(&mut self) {
-        match ClientDB::get_all_client_jobs(self.uid) {
-            Some(jobs) => {
-                jobs.into_iter().for_each(|job| match job {
-                    CliTask::Exit => {
-                        self.send_response(SHUTDOWN_MSG);
-                        self.shutdown();
-                    }
-                    CliTask::SendMsg(date, sender, msg) => {
-                        let full_msg = format!(
-                            "MSGFROM [{} {}] ({}): {}",
-                            date,
-                            sender,
-                            msg.chars().count(),
-                            msg
-                        );
-                        self.send_response(full_msg)
-                    }
-                });
-            }
-            None => (),
+        if let Some(jobs) = ClientDB::get_all_client_jobs(self.uid) {
+            jobs.into_iter().for_each(|job| match job {
+                CliTask::Exit => {
+                    self.send_response(SHUTDOWN_MSG);
+                    self.shutdown();
+                }
+                CliTask::SendMsg(date, sender, msg) => {
+                    let full_msg = format!(
+                        "MSGFROM [{} {}] ({}): {}",
+                        date,
+                        sender,
+                        msg.chars().count(),
+                        msg
+                    );
+                    self.send_response(full_msg)
+                }
+            });
         }
     }
 
@@ -159,6 +156,7 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         if ClientDB::is_logged_in(self.uid) {
+            ClientDB::update_cmd_ts(self.uid);
             ClientDB::set_online_status(self.uid, false);
         } else {
             ClientDB::remove_cli(self.uid);
